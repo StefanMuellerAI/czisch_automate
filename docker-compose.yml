@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  n8n-etl-api:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/', timeout=10)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      # Optional: Mount volume for persistent data if needed
+      - ./data:/app/data
+    networks:
+      - n8n-network
+
+networks:
+  n8n-network:
+    driver: bridge
