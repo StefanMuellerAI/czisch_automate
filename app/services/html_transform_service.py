@@ -51,6 +51,12 @@ class HTMLToXMLTransformService:
                 
                 elif action == "build_xml_tree":
                     return HTMLToXMLTransformService._build_xml_tree(extracted_data, rule)
+                
+                elif action == "map_to_taifun_fields":
+                    extracted_data = HTMLToXMLTransformService._map_to_taifun_fields(extracted_data, rule)
+                
+                elif action == "build_taifun_xml":
+                    return HTMLToXMLTransformService._build_taifun_xml(extracted_data, rule)
             
             # Default XML wrapping if no explicit wrap action
             return HTMLToXMLTransformService._default_xml_wrap(extracted_data)
@@ -258,3 +264,144 @@ class HTMLToXMLTransformService:
         formatted = rough_string.replace('><', '>\n<')
         
         return f'<?xml version="1.0" encoding="UTF-8"?>\n{formatted}'
+    
+    @staticmethod
+    def _map_to_taifun_fields(data: Dict[str, Any], rule: Dict[str, Any]) -> Dict[str, Any]:
+        """Mappt extrahierte HTML-Daten auf Taifun XML-Felder"""
+        field_mapping = rule.get("field_mapping", {})
+        mapped_data = {}
+        
+        for source_field, target_fields in field_mapping.items():
+            if source_field in data and data[source_field]:
+                source_value = data[source_field]
+                
+                # Behandle verschiedene Target-Field-Typen
+                if isinstance(target_fields, str):
+                    # Einzelnes Zielfeld
+                    mapped_data[target_fields] = source_value
+                elif isinstance(target_fields, list):
+                    # Mehrere Zielfelder (z.B. für Adressdaten)
+                    if source_field in ['location_address', 'address']:
+                        # Spezielle Behandlung für Adressen
+                        HTMLToXMLTransformService._parse_address_to_fields(
+                            source_value, target_fields, mapped_data
+                        )
+                    elif source_field in ['appointment_time', 'time_range']:
+                        # Spezielle Behandlung für Zeitspannen
+                        HTMLToXMLTransformService._parse_time_range_to_fields(
+                            source_value, target_fields, mapped_data
+                        )
+                    else:
+                        # Standard: Wert in alle Zielfelder kopieren
+                        for target_field in target_fields:
+                            mapped_data[target_field] = source_value
+        
+        # Originaldaten beibehalten, die nicht gemappt wurden
+        for key, value in data.items():
+            if key not in field_mapping:
+                mapped_data[key] = value
+        
+        logger.info(f"Mapped {len(field_mapping)} fields for Taifun XML")
+        return mapped_data
+    
+    @staticmethod
+    def _parse_address_to_fields(address: str, target_fields: List[str], mapped_data: Dict[str, Any]):
+        """Parst eine Adresszeile in separate Felder"""
+        # Einfaches Parsing - kann später verfeinert werden
+        address_parts = address.strip().split(',')
+        
+        if len(address_parts) >= 1 and 'MtAnschriftStr' in target_fields:
+            mapped_data['MtAnschriftStr'] = address_parts[0].strip()
+        
+        if len(address_parts) >= 2:
+            # Versuche PLZ und Ort zu extrahieren
+            plz_ort = address_parts[-1].strip()
+            plz_match = re.match(r'(\d{5})\s+(.+)', plz_ort)
+            if plz_match:
+                if 'MtAnschriftPLZ' in target_fields:
+                    mapped_data['MtAnschriftPLZ'] = plz_match.group(1)
+                if 'MtAnschriftOrt' in target_fields:
+                    mapped_data['MtAnschriftOrt'] = plz_match.group(2)
+    
+    @staticmethod
+    def _parse_time_range_to_fields(time_range: str, target_fields: List[str], mapped_data: Dict[str, Any]):
+        """Parst eine Zeitspanne in Von/Bis-Felder"""
+        # Beispiele: "13:00-15:00", "13:00 bis 15:00", "von 13:00 bis 15:00"
+        time_pattern = r'(\d{1,2}:\d{2}).*?(\d{1,2}:\d{2})'
+        match = re.search(time_pattern, time_range)
+        
+        if match:
+            if 'TimeVon' in target_fields:
+                mapped_data['TimeVon'] = f"{match.group(1)}:00"
+            if 'TimeBis' in target_fields:
+                mapped_data['TimeBis'] = f"{match.group(2)}:00"
+        else:
+            # Fallback: gesamten String als TimeVon verwenden
+            if 'TimeVon' in target_fields:
+                mapped_data['TimeVon'] = time_range
+    
+    @staticmethod
+    def _build_taifun_xml(data: Dict[str, Any], rule: Dict[str, Any]) -> str:
+        """Erstellt Taifun XML aus gemappten Daten"""
+        template_type = rule.get("template_type", "work_order")
+        preserve_customer_data = rule.get("preserve_customer_data", True)
+        
+        # Für jetzt geben wir die Daten als strukturiertes XML zurück
+        # Das kann später mit dem XMLTemplateService kombiniert werden
+        root = ET.Element("TaifunData")
+        root.set("type", template_type)
+        
+        # Auftragsdaten
+        work_order = ET.SubElement(root, "WorkOrder")
+        
+        # Wichtige Felder für Taifun
+        taifun_fields = {
+            'Info': data.get('problem_description', ''),
+            'VortextTxt': data.get('detailed_description', data.get('problem_description', '')),
+            'BestellNr': data.get('order_number', ''),
+            'DateTermin': data.get('appointment_date', ''),
+            'TimeVon': data.get('appointment_time_from', ''),
+            'TimeBis': data.get('appointment_time_to', ''),
+            'MtName1': data.get('location_name', ''),
+            'MtAnschriftStr': data.get('location_street', ''),
+            'MtAnschriftPLZ': data.get('location_zip', ''),
+            'MtAnschriftOrt': data.get('location_city', ''),
+            'MaMatch': data.get('technician', ''),
+        }
+        
+        for field_name, value in taifun_fields.items():
+            if value:  # Nur nicht-leere Werte hinzufügen
+                field_elem = ET.SubElement(work_order, field_name)
+                field_elem.text = str(value)
+        
+        # Kontaktdaten falls vorhanden
+        if data.get('contact_person') or data.get('contact_phone'):
+            contact_info = []
+            if data.get('contact_person'):
+                contact_info.append(f"Meldender: {data['contact_person']}")
+            if data.get('contact_phone'):
+                contact_info.append(f"Telefon: {data['contact_phone']}")
+            
+            # Zu VortextTxt hinzufügen
+            current_vortext = taifun_fields.get('VortextTxt', '')
+            enhanced_vortext = current_vortext + '\n' + '\n'.join(contact_info)
+            
+            vortext_elem = work_order.find('VortextTxt')
+            if vortext_elem is not None:
+                vortext_elem.text = enhanced_vortext
+            else:
+                vortext_elem = ET.SubElement(work_order, 'VortextTxt')
+                vortext_elem.text = enhanced_vortext
+        
+        # Zusätzliche extrahierte Daten
+        if len(data) > len(taifun_fields):
+            additional = ET.SubElement(root, "AdditionalData")
+            for key, value in data.items():
+                if key not in ['problem_description', 'detailed_description', 'order_number', 
+                              'appointment_date', 'appointment_time_from', 'appointment_time_to',
+                              'location_name', 'location_street', 'location_zip', 'location_city',
+                              'technician', 'contact_person', 'contact_phone']:
+                    elem = ET.SubElement(additional, key.replace(' ', '_'))
+                    elem.text = str(value)
+        
+        return HTMLToXMLTransformService._xml_to_string(root)

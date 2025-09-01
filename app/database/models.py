@@ -63,6 +63,33 @@ class TransformRule:
         }
 
 
+class XMLTemplate:
+    """Model for XML templates (e.g., Taifun templates)"""
+    
+    def __init__(self, id: Optional[int] = None, template_name: str = "",
+                 template_content: str = "", template_type: str = "taifun_work_order",
+                 customer_id: Optional[str] = None, description: str = "",
+                 created_at: Optional[datetime] = None):
+        self.id = id
+        self.template_name = template_name
+        self.template_content = template_content
+        self.template_type = template_type
+        self.customer_id = customer_id
+        self.description = description
+        self.created_at = created_at or datetime.now()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "template_name": self.template_name,
+            "template_content": self.template_content,
+            "template_type": self.template_type,
+            "customer_id": self.customer_id,
+            "description": self.description,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
+
+
 class SSHTransferRoute:
     """Model for SSH transfer routes with encrypted credentials"""
     
@@ -171,6 +198,20 @@ class ETLDatabase:
                         password TEXT,
                         private_key TEXT,
                         target_directory TEXT NOT NULL,
+                        description TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Create XML templates table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS xml_templates (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        template_name TEXT NOT NULL UNIQUE,
+                        template_content TEXT NOT NULL,
+                        template_type TEXT DEFAULT 'taifun_work_order',
+                        customer_id TEXT,
                         description TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -535,6 +576,90 @@ class ETLDatabase:
             target_directory=row[7],
             description=row[8] or "",
             created_at=datetime.fromisoformat(row[9]) if row[9] else None
+        )
+    
+    # === XML TEMPLATES METHODS ===
+    
+    def add_xml_template(self, template: XMLTemplate) -> int:
+        """Add a new XML template to the database"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    INSERT OR REPLACE INTO xml_templates 
+                    (template_name, template_content, template_type, customer_id, description)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    template.template_name,
+                    template.template_content,
+                    template.template_type,
+                    template.customer_id,
+                    template.description
+                ))
+                
+                template_id = cursor.lastrowid
+                conn.commit()
+                
+                logger.info(f"Added XML template: {template.template_name}")
+                return template_id
+                
+        except Exception as e:
+            logger.error(f"Failed to add XML template: {e}")
+            raise
+    
+    def get_xml_template(self, template_name: str) -> Optional[XMLTemplate]:
+        """Get XML template by name"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT * FROM xml_templates 
+                    WHERE template_name = ? 
+                    ORDER BY updated_at DESC 
+                    LIMIT 1
+                """, (template_name,))
+                
+                row = cursor.fetchone()
+                
+                if row:
+                    return self._row_to_xml_template(row)
+                
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to get XML template: {e}")
+            return None
+    
+    def get_all_xml_templates(self) -> List[XMLTemplate]:
+        """Get all XML templates"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT * FROM xml_templates 
+                    ORDER BY template_type, template_name
+                """)
+                
+                rows = cursor.fetchall()
+                return [self._row_to_xml_template(row) for row in rows]
+                
+        except Exception as e:
+            logger.error(f"Failed to get all XML templates: {e}")
+            return []
+    
+    def _row_to_xml_template(self, row) -> XMLTemplate:
+        """Convert database row to XMLTemplate object"""
+        return XMLTemplate(
+            id=row[0],
+            template_name=row[1],
+            template_content=row[2],
+            template_type=row[3],
+            customer_id=row[4],
+            description=row[5],
+            created_at=datetime.fromisoformat(row[6]) if row[6] else None
         )
 
 

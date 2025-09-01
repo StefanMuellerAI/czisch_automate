@@ -169,7 +169,87 @@ def init_transform_rules():
         description="Compact HTML to XML - creates short XML summary with metadata"
     )
     
-    rules = [basic_transform, structured_transform, compact_transform]
+    # Rule 4: Taifun Work Order XML transformation
+    taifun_transform = TransformRule(
+        rule_name="html_to_taifun_xml",
+        rules=[
+            {
+                "action": "extract_elements",
+                "selectors": {
+                    "problem_description": ".problem-info, .description, .meldung, .schadensbeschreibung",
+                    "order_number": ".order-nr, .bestellnummer, .auftragsnummer, .referenz",
+                    "technician": ".technician, .mitarbeiter, .handwerker, .zuständig",
+                    "appointment_date": ".termin-datum, .date, .datum, .termin",
+                    "appointment_time": ".termin-zeit, .time, .zeit, .uhrzeit",
+                    "location_name": ".objekt-name, .location, .standort, .objekt",
+                    "location_address": ".adresse, .address, .anschrift",
+                    "contact_person": ".ansprechpartner, .contact, .kontakt, .meldender",
+                    "phone": ".telefon, .phone, .tel, .handy"
+                }
+            },
+            {
+                "action": "clean_whitespace",
+                "normalize": True
+            },
+            {
+                "action": "map_to_taifun_fields",
+                "field_mapping": {
+                    "problem_description": ["Info", "VortextTxt"],
+                    "order_number": "BestellNr",
+                    "technician": "MaMatch",
+                    "appointment_date": "DateTermin",
+                    "appointment_time": ["TimeVon", "TimeBis"],
+                    "location_name": "MtName1",
+                    "location_address": ["MtAnschriftStr", "MtAnschriftPLZ", "MtAnschriftOrt"],
+                    "contact_person": "contact_person",
+                    "phone": "contact_phone"
+                }
+            },
+            {
+                "action": "build_taifun_xml",
+                "template_type": "work_order",
+                "preserve_customer_data": True
+            }
+        ],
+        output_format="xml",
+        description="Konvertiert HTML-Auftragsdaten in Taifun XML-Format für Arbeitsaufträge"
+    )
+    
+    # Rule 5: Flexible Taifun extraction (für unbekannte Websites)
+    flexible_taifun_transform = TransformRule(
+        rule_name="html_to_taifun_flexible",
+        rules=[
+            {
+                "action": "extract_text",
+                "target": "body",
+                "output": "full_content"
+            },
+            {
+                "action": "extract_elements",
+                "selectors": {
+                    "all_headings": "h1, h2, h3, h4, h5, h6",
+                    "all_paragraphs": "p",
+                    "all_lists": "ul li, ol li",
+                    "all_tables": "table td, table th",
+                    "all_forms": "input, textarea, select",
+                    "all_links": "a[href]"
+                }
+            },
+            {
+                "action": "clean_whitespace",
+                "normalize": True
+            },
+            {
+                "action": "build_taifun_xml",
+                "template_type": "flexible_extraction",
+                "preserve_customer_data": True
+            }
+        ],
+        output_format="xml",
+        description="Flexible HTML-Extraktion für unbekannte Websites - extrahiert alle verfügbaren Daten"
+    )
+    
+    rules = [basic_transform, structured_transform, compact_transform, taifun_transform, flexible_taifun_transform]
     added_ids = []
     
     for rule in rules:
@@ -236,6 +316,64 @@ EXAMPLE_PRIVATE_KEY_CONTENT_PLACEHOLDER
     return added_ids
 
 
+def init_xml_templates():
+    """Initialize XML templates with example Taifun templates"""
+    from app.database.models import XMLTemplate, etl_db
+    import os
+    
+    # Versuche die echten XML-Dateien zu laden
+    templates_to_add = []
+    
+    # Lade die bereitgestellten XML-Dateien
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    
+    try:
+        # Leere XML laden
+        empty_xml_path = os.path.join(project_root, "Test Export Aufträge leer.xml")
+        if os.path.exists(empty_xml_path):
+            with open(empty_xml_path, 'r', encoding='windows-1252') as f:
+                real_empty_content = f.read()
+            
+            real_empty_template = XMLTemplate(
+                template_name="taifun_empty_template",
+                template_content=real_empty_content,
+                template_type="taifun_work_order",
+                customer_id="IMD",
+                description="Leeres Taifun XML-Template vom Kunden bereitgestellt"
+            )
+            templates_to_add.append(real_empty_template)
+        
+        # Gefüllte XML als Referenz laden
+        filled_xml_path = os.path.join(project_root, "Test Export Aufträge.xml")
+        if os.path.exists(filled_xml_path):
+            with open(filled_xml_path, 'r', encoding='windows-1252') as f:
+                filled_content = f.read()
+            
+            filled_template = XMLTemplate(
+                template_name="taifun_filled_reference",
+                template_content=filled_content,
+                template_type="taifun_reference",
+                customer_id="IMD",
+                description="Gefülltes Taifun XML als Referenz für die Feldstruktur"
+            )
+            templates_to_add.append(filled_template)
+            
+    except Exception as e:
+        logger.warning(f"Could not load XML files: {e}")
+    
+    # Templates zur Datenbank hinzufügen
+    added_ids = []
+    for template in templates_to_add:
+        try:
+            template_id = etl_db.add_xml_template(template)
+            added_ids.append(template_id)
+            logger.info(f"Added XML template '{template.template_name}' with ID: {template_id}")
+        except Exception as e:
+            logger.error(f"Failed to add XML template '{template.template_name}': {e}")
+    
+    return added_ids
+
+
 def initialize_all_test_data():
     """Initialize all test data"""
     logger.info("Initializing database with test data...")
@@ -244,19 +382,22 @@ def initialize_all_test_data():
     example_ids = init_example_instructions()
     transform_ids = init_transform_rules()
     ssh_ids = init_ssh_routes()
+    xml_template_ids = init_xml_templates()
     
     all_instruction_ids = [stefanai_id] + example_ids
     all_instruction_ids = [id for id in all_instruction_ids if id is not None]
     
     all_transform_ids = [id for id in transform_ids if id is not None]
     all_ssh_ids = [id for id in ssh_ids if id is not None]
+    all_xml_template_ids = [id for id in xml_template_ids if id is not None]
     
-    logger.info(f"Successfully initialized {len(all_instruction_ids)} URL instructions, {len(all_transform_ids)} transform rules, and {len(all_ssh_ids)} SSH routes")
+    logger.info(f"Successfully initialized {len(all_instruction_ids)} URL instructions, {len(all_transform_ids)} transform rules, {len(all_ssh_ids)} SSH routes, and {len(all_xml_template_ids)} XML templates")
     
     return {
         "url_instructions": all_instruction_ids,
         "transform_rules": all_transform_ids,
-        "ssh_routes": all_ssh_ids
+        "ssh_routes": all_ssh_ids,
+        "xml_templates": all_xml_template_ids
     }
 
 
