@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     
     # Logging Configuration
     log_level: str = "INFO"
+
+    # Encryption Configuration
+    encryption_password: Optional[str] = None  # env var: ENCRYPTION_PASSWORD
     
     # API Configuration
     docs_url: str = "/docs"

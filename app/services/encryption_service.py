@@ -2,9 +2,10 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
-import os
 import logging
 from typing import Optional
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,9 @@ class EncryptionService:
     
     def __init__(self, password: Optional[str] = None):
         """Initialize with password or use environment variable"""
-        self.password = password or os.getenv("ENCRYPTION_PASSWORD", "default_encryption_key_change_in_production")
+        self.password = password or settings.encryption_password
+        if not self.password:
+            raise EnvironmentError("ENCRYPTION_PASSWORD environment variable is required")
         self._fernet = None
     
     def _get_fernet(self) -> Fernet:
