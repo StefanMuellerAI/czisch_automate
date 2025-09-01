@@ -1,4 +1,4 @@
-from playwright.async_api import async_playwright, Browser, Page
+from playwright.async_api import async_playwright, Browser
 from typing import Optional, Dict, Any
 import logging
 from app.config import settings
