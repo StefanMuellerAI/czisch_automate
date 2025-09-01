@@ -2,7 +2,6 @@ from typing import Any, Dict, Optional
 import json
 import logging
 import asyncio
-from urllib.parse import urlparse
 from app.services.playwright_service import playwright_service
 from app.database.models import etl_db, URLInstruction
 
