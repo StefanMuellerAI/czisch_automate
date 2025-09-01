@@ -1,7 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings, setup_logging
-from app.routers import health, transform, extract, transfer, manage
+from app.routers import (
+    health,
+    transform,
+    extract,
+    transfer,
+    manage,
+    instructions,
+    transform_rules,
+    ssh_routes,
+)
 from app.services.playwright_service import playwright_service
 
 # Setup logging
@@ -31,6 +40,9 @@ app.include_router(transform.router)
 app.include_router(extract.router)
 app.include_router(transfer.router)
 app.include_router(manage.router)
+app.include_router(instructions.router)
+app.include_router(transform_rules.router)
+app.include_router(ssh_routes.router)
 
 
 @app.on_event("startup")
