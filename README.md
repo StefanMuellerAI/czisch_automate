@@ -217,7 +217,14 @@ PLAYWRIGHT_TIMEOUT=30000
 
 # Logging
 LOG_LEVEL=INFO
+
+# Verschlüsselung
+ENCRYPTION_PASSWORD="mein_geheimer_schluessel"
 ```
+
+Die Variable `ENCRYPTION_PASSWORD` muss gesetzt sein und wird vom Verschlüsselungsservice
+zur Absicherung sensibler Daten verwendet. Ist sie nicht vorhanden, startet die Anwendung mit
+einem Fehler.
 
 ## Entwicklung und Erweiterung
 
